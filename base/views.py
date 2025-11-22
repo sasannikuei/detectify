@@ -1,9 +1,13 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from .models import UploadedImage
 from .serializers import UploadedImageSerializer
-import requests
+from ultralytics import YOLO
+
+
+# Loading YOLO model.
+model = YOLO("models/yolov8n.pt")
+
 
 
 class ImageUploadView(APIView):
@@ -13,13 +17,21 @@ class ImageUploadView(APIView):
             instance = serializer.save()
             image_path = instance.image.path
 
-            # ارسال به Colab API
-            files = {"file": open(image_path, "rb")}
-            response = requests.post("https://colab.research.google.com/drive/12rIjbYf0kxmjciS2b8TmeRD0lc-Zw1tc#scrollTo=XnplQ_zg8PcO", files=files)
+            # Running YOLO on photo
+            results = model(image_path)
 
+            detections = []
+            for r in results:
+                for box in r.boxes:
+                    detections.append({
+                        "class": int(box.cls[0]),
+                        "confidence": float(box.conf[0]),
+                        "xyxy": box.xyxy[0].tolist()
+                    })
 
             return Response({
                 "image_url": request.build_absolute_uri(instance.image.url),
-                "detections": response.json().get("detections", [])
+                "detections": detections
             }, status=status.HTTP_201_CREATED)
+
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
